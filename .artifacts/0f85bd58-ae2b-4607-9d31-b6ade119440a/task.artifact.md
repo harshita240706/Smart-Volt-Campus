@@ -1,0 +1,5 @@
+- `[x]` Create `ThemeProvider` for dark/light mode persistence.
+- `[x]` Create `HistoryProvider` for weekly energy data management.
+- `[x]` Create `HistoryScreen` to display Monday-Saturday data.
+- `[x]` Update `main.dart` to include bottom navigation and theme toggle.
+- `[x]` Verify UI and persistence.

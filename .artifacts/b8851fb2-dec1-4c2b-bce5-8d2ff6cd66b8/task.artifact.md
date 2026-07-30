@@ -1,0 +1,21 @@
+# Smart Campus Implementation Tasks
+
+- [x] Setup Dependencies
+    - [x] Add `http`, `provider`, and `shared_preferences` to `pubspec.yaml`
+- [x] Create Data Models
+    - [x] Implement `lib/models/sensor_data.dart`
+- [x] Implement Communication Services
+    - [x] Implement `lib/services/esp_service.dart` (HTTP Polling)
+- [x] Implement State Management
+    - [x] Implement `lib/providers/control_provider.dart`
+    - [x] Implement `lib/providers/auth_provider.dart` (Roles: Teacher/Other)
+- [x] Build User Interface
+    - [x] Create Dashboard Layout in `lib/main.dart`
+    - [x] Implement `lib/screens/login_screen.dart`
+    - [x] Implement Role-based UI restrictions (Teacher full access, Others view-only)
+    - [x] Add Logout functionality
+    - [x] Add IP Configuration Settings
+- [x] Verification
+    - [x] Verify Login persists after app restart
+    - [x] Verify Role restrictions on Dashboard
+    - [x] Provide ESP32 logic reference
