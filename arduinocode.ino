@@ -2,11 +2,11 @@
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
 
+
 #define DHTPIN 4
 #define DHTTYPE DHT11
+#define OCCUPANCY_PIN 35
 
-#define TRIG_PIN 16
-#define ECHO_PIN 17
 
 #define LED1 12
 #define LED2 14
@@ -26,6 +26,8 @@ void setup() {
 
   pinMode(LED1, OUTPUT);
   pinMode(LED2, OUTPUT);
+  pinMode(OCCUPANCY_PIN,INPUT);
+  
 
   dht.begin();
 
@@ -45,6 +47,8 @@ void setup() {
 
 void loop() {
 
+  // ---------- Ultrasonic ----------
+
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
 
@@ -54,15 +58,16 @@ void loop() {
   digitalWrite(TRIG_PIN, LOW);
 
   duration = pulseIn(ECHO_PIN, HIGH);
+  
 
   distance = duration * 0.034 / 2;
 
-  
+  // ---------- DHT11 ----------
 
   float temp = dht.readTemperature();
   float hum = dht.readHumidity();
 
-
+  // ---------- LEDs ----------
 
   if(distance < 50)
   {
@@ -75,7 +80,7 @@ void loop() {
     digitalWrite(LED2,LOW);
   }
 
-  
+  // ---------- LCD ----------
 
   lcd.clear();
 
@@ -93,7 +98,16 @@ void loop() {
   lcd.print("D:");
   lcd.print(distance);
   lcd.print(" cm");
+  if (digitalRead(OCCUPANCY_PIN) == HIGH) {
+  digitalWrite(LED1_PIN, HIGH);
+  digitalWrite(LED2_PIN, HIGH);
+  }
+  else {
+    digitalWrite(LED1_PIN, LOW);
+    digitalWrite(LED2_PIN, LOW);
+  }
 
+  // ---------- Serial ----------
 
   Serial.print("Temperature : ");
   Serial.print(temp);
