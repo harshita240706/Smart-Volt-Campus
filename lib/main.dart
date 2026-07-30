@@ -137,13 +137,31 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
                 Navigator.pop(context);
               },
             ),
+            SwitchListTile(
+              secondary: const Icon(Icons.cloud),
+              title: const Text('Cloud Mode (ThingSpeak)'),
+              value: controlProvider.isCloudMode,
+              onChanged: (val) {
+                controlProvider.toggleCloudMode(val);
+                Navigator.pop(context);
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.settings_ethernet),
-              title: const Text('ESP32 IP Configuration'),
+              title: const Text('Local IP Configuration'),
               subtitle: Text(controlProvider.currentIp),
               onTap: () {
                 Navigator.pop(context);
                 _showIpDialog(context, controlProvider);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.api),
+              title: const Text('ThingSpeak Settings'),
+              subtitle: Text(controlProvider.channelId.isEmpty ? "Not Configured" : "ID: ${controlProvider.channelId}"),
+              onTap: () {
+                Navigator.pop(context);
+                _showThingSpeakDialog(context, controlProvider);
               },
             ),
             ListTile(
@@ -166,7 +184,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('ESP32 Configuration'),
+        title: const Text('Local Network Configuration'),
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(labelText: 'ESP32 IP Address'),
@@ -177,6 +195,53 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
           ElevatedButton(
             onPressed: () {
               provider.updateIp(controller.text);
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showThingSpeakDialog(BuildContext context, ControlProvider provider) {
+    final channelController = TextEditingController(text: provider.channelId);
+    final readKeyController = TextEditingController(text: provider.readKey);
+    final writeKeyController = TextEditingController(text: provider.writeKey);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ThingSpeak Configuration'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: channelController,
+                decoration: const InputDecoration(labelText: 'Channel ID'),
+                keyboardType: TextInputType.number,
+              ),
+              TextField(
+                controller: readKeyController,
+                decoration: const InputDecoration(labelText: 'Read API Key'),
+              ),
+              TextField(
+                controller: writeKeyController,
+                decoration: const InputDecoration(labelText: 'Write API Key'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              provider.updateThingSpeakSettings(
+                channelId: channelController.text,
+                readKey: readKeyController.text,
+                writeKey: writeKeyController.text,
+              );
               Navigator.pop(context);
             },
             child: const Text('Save'),
@@ -203,7 +268,7 @@ class DashboardScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Connection Status
-          _buildStatusHeader(provider.isConnected),
+          _buildStatusHeader(provider.isConnected, provider.isCloudMode),
           const SizedBox(height: 20),
 
           // Sensor Data Grid
@@ -221,6 +286,12 @@ class DashboardScreen extends StatelessWidget {
                 color: Colors.orange,
               ),
               _SensorCard(
+                title: 'Humidity',
+                value: '${data.humidity}%',
+                icon: Icons.water_drop,
+                color: Colors.cyan,
+              ),
+              _SensorCard(
                 title: 'Motion',
                 value: data.motionDetected ? 'DETECTED' : 'None',
                 icon: Icons.person_search,
@@ -231,12 +302,6 @@ class DashboardScreen extends StatelessWidget {
                 value: data.smokeDetected ? 'WARNING' : 'Clear',
                 icon: Icons.smoke_free,
                 color: data.smokeDetected ? Colors.red : Colors.blue,
-              ),
-              _SensorCard(
-                title: 'Humidity',
-                value: '45%', // Static example
-                icon: Icons.water_drop,
-                color: Colors.cyan,
               ),
             ],
           ),
@@ -296,7 +361,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusHeader(bool connected) {
+  Widget _buildStatusHeader(bool connected, bool isCloud) {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -307,12 +372,14 @@ class DashboardScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            connected ? Icons.wifi : Icons.wifi_off,
+            isCloud ? Icons.cloud : (connected ? Icons.wifi : Icons.wifi_off),
             color: connected ? Colors.green : Colors.red,
           ),
           const SizedBox(width: 10),
           Text(
-            connected ? 'Connected to ESP32' : 'Searching for ESP32...',
+            isCloud 
+              ? (connected ? 'Cloud Connected' : 'Cloud Error')
+              : (connected ? 'Local Connected' : 'Searching...'),
             style: TextStyle(color: connected ? Colors.green[800] : Colors.red[800]),
           ),
         ],
@@ -332,13 +399,6 @@ class DashboardScreen extends StatelessWidget {
           isOn: data.lightState,
           isEnabled: canInteract,
           onToggle: (val) => provider.controlDevice('light', val),
-        ),
-        const SizedBox(height: 10),
-        _ControlRow(
-          label: 'Fan',
-          isOn: data.fanState,
-          isEnabled: canInteract,
-          onToggle: (val) => provider.controlDevice('fan', val),
         ),
       ],
     );
@@ -406,7 +466,7 @@ class _ControlRow extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  label == 'Light' ? Icons.lightbulb : Icons.air,
+                  Icons.lightbulb,
                   color: isEnabled ? (isOn ? Colors.yellow[800] : Colors.grey) : Colors.grey[400],
                 ),
                 const SizedBox(width: 15),
