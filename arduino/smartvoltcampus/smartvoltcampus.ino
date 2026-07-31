@@ -9,250 +9,612 @@
 #include <MFRC522.h>
 #include <WebServer.h>
 
-// --- Configuration ---
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-unsigned long myChannelNumber = 1234567; // Your Channel ID
-const char* myWriteAPIKey = "YOUR_WRITE_KEY";
+//==========================
+// WiFi & ThingSpeak
+//==========================
 
-// --- Pin Definitions ---
-#define DHTPIN 4
-#define DHTTYPE DHT11
-#define TRIG_PIN 16
-#define ECHO_PIN 17
-#define LED1 12
-#define LED2 14
-#define LED3 27
-#define LED4 26
-#define MQ135_PIN 34  // Analog
-#define BUZZER_PIN 2
-#define SERVO_PIN 15
-#define SWITCH_PIN 33
-#define RFID_SS 5
-#define RFID_RST 32
+const char* ssid = "Uday";
+const char* password = "zoris._.ud";
 
-// --- Objects ---
-hd44780_I2Cexp lcd; // Auto-detects address, 16x2 configured in begin()
-DHT dht(DHTPIN, DHTTYPE);
-Servo windowServo;
-MFRC522 mfrc522(RFID_SS, RFID_RST);
+unsigned long myChannelNumber = 3440531;
+const char* myWriteAPIKey = "UCRGIKPG27SAN1KM";
+
 WiFiClient client;
 WebServer server(80);
 
-// --- State Variables ---
+//==========================
+// Pin Definitions
+//==========================
+
+#define DHTPIN          4
+#define DHTTYPE         DHT11
+
+#define TRIG_PIN        16
+#define ECHO_PIN        17
+
+#define LED1            12
+#define LED2            14
+#define LED3            2      // Changed from GPIO27
+#define LED4            15
+
+#define MQ135_PIN       34
+
+#define BUZZER_PIN      25
+
+#define SERVO_PIN       13
+
+#define SWITCH_PIN      33
+
+#define RFID_SS         5
+#define RFID_RST        27
+
+//==========================
+// Objects
+//==========================
+
+DHT dht(DHTPIN, DHTTYPE);
+
+hd44780_I2Cexp lcd;
+
+Servo windowServo;
+
+MFRC522 mfrc522(RFID_SS, RFID_RST);
+
+//==========================
+// RFID Authorized UID
+// Replace with your card UID
+//==========================
+
+byte authorizedUID[4] = {0x00,0x00,0x00,0x00};
+
+//==========================
+// Variables
+//==========================
+
 bool teacherPresent = false;
+
 bool occupationDetected = false;
+
 bool smokeDetected = false;
-String mode = "auto"; // auto or manual
-unsigned long lastActivityTime = 0;
-unsigned long lastThingSpeakUpdate = 0;
-unsigned long lastEnergyCalcTime = 0;
-float totalEnergyWh = 0.0;
-const float LED_POWER_WATTS = 0.05; // 50mW
 
-void setup() {
-  Serial.begin(115200);
+bool manualMode = false;
 
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(LED1, OUTPUT);
-  pinMode(LED2, OUTPUT);
-  pinMode(LED3, OUTPUT);
-  pinMode(LED4, OUTPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(SWITCH_PIN, INPUT_PULLUP);
+float temperature = 0;
 
-  dht.begin();
-  lcd.begin(16, 2);
-  lcd.backlight();
-  windowServo.attach(SERVO_PIN);
-  windowServo.write(0); // Close window
+float humidity = 0;
 
-  SPI.begin();
-  mfrc522.PCD_Init();
+int smokeLevel = 0;
 
-  connectWiFi();
-  ThingSpeak.begin(client);
-  setupWebServer();
+float totalEnergyWh = 0;
 
-  lastActivityTime = millis();
-  lastEnergyCalcTime = millis();
+unsigned long previousThingSpeak = 0;
+
+unsigned long previousEnergy = 0;
+
+unsigned long lastActivity = 0;
+
+const float LED_POWER = 0.05;
+
+//==========================
+// Function Prototypes
+//==========================
+
+void connectWiFi();
+void setupWebServer();
+
+void readRFID();
+void readUltrasonic();
+void readDHT();
+void readSmoke();
+
+void controlLights();
+void controlSafety();
+
+void updateLCD();
+
+void updateThingSpeak();
+
+void calculateEnergy();
+
+void sleepCheck();
+
+//==========================
+// Setup
+//==========================
+
+void setup()
+{
+    Serial.begin(115200);
+
+    pinMode(TRIG_PIN,OUTPUT);
+    pinMode(ECHO_PIN,INPUT);
+
+    pinMode(LED1,OUTPUT);
+    pinMode(LED2,OUTPUT);
+    pinMode(LED3,OUTPUT);
+    pinMode(LED4,OUTPUT);
+
+    pinMode(BUZZER_PIN,OUTPUT);
+
+    pinMode(SWITCH_PIN,INPUT_PULLUP);
+
+    dht.begin();
+
+    lcd.begin(16,2);
+    lcd.backlight();
+
+    windowServo.attach(SERVO_PIN);
+    windowServo.write(0);
+
+    SPI.begin();
+
+    mfrc522.PCD_Init();
+
+    connectWiFi();
+
+    ThingSpeak.begin(client);
+
+    setupWebServer();
+
+    previousEnergy = millis();
+
+    lastActivity = millis();
+
+    Serial.println("SmartVolt Campus Started");
 }
 
-void loop() {
-  server.handleClient();
+//==========================
+// Main Loop
+//==========================
 
-  // 1. Check RFID (Teacher)
-  if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
-    teacherPresent = !teacherPresent; // Toggle teacher presence
-    Serial.println(teacherPresent ? "Teacher Entered" : "Teacher Left");
-    mfrc522.PICC_HaltA();
-    lastActivityTime = millis();
+void loop()
+{
+    server.handleClient();
+
+    if(WiFi.status()!=WL_CONNECTED)
+    {
+        connectWiFi();
+    }
+
+    readRFID();
+
+    readUltrasonic();
+
+    readDHT();
+
+    readSmoke();
+
+    manualMode = (digitalRead(SWITCH_PIN)==LOW);
+
+    controlLights();
+
+    controlSafety();
+
+    updateLCD();
+
+    calculateEnergy();
+
+    if(millis()-previousThingSpeak>20000)
+    {
+        updateThingSpeak();
+        previousThingSpeak=millis();
+    }
+
+    sleepCheck();
+
+    delay(100);
+}
+//==================================================
+// WiFi Connection
+//==================================================
+
+void connectWiFi()
+{
+  Serial.print("Connecting to WiFi");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  unsigned long startTime = millis();
+
+  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 15000)
+  {
+    Serial.print(".");
+    delay(500);
   }
 
-  // 2. Ultrasonic Sensing (Occupation)
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-  long duration = pulseIn(ECHO_PIN, HIGH);
-  float distance = duration * 0.034 / 2;
-
-  if (distance > 0 && distance < 200) { // Detection range
-    occupationDetected = true;
-    lastActivityTime = millis();
-  } else {
-    occupationDetected = false;
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println();
+    Serial.println("WiFi Connected");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
   }
-
-  // 3. Environment (DHT11)
-  float temp = dht.readTemperature();
-  float hum = dht.readHumidity();
-
-  // 4. Smoke Detection (MQ135)
-  int smokeLevel = analogRead(MQ135_PIN);
-  smokeDetected = (smokeLevel > 1500); // Adjust threshold as needed
-
-  // 5. Control Logic
-  handleLEDs();
-  handleSafety(smokeDetected);
-  updateLCD(temp, hum, smokeDetected);
-
-  // 6. Energy Calculation
-  calculateEnergy();
-
-  // 7. Power Management (Sleep)
-  if (millis() - lastActivityTime > 900000) { // 15 mins
-    goToSleep();
+  else
+  {
+    Serial.println();
+    Serial.println("WiFi Connection Failed");
   }
-
-  // 8. Cloud Update
-  if (millis() - lastThingSpeakUpdate > 20000) {
-    updateCloud(temp, hum, smokeLevel);
-    lastThingSpeakUpdate = millis();
-  }
-
-  delay(500);
 }
 
-void handleLEDs() {
-  bool manualSwitch = digitalRead(SWITCH_PIN) == LOW;
+//==================================================
+// RFID Reading
+//==================================================
 
-  if (mode == "manual") {
-    digitalWrite(LED1, manualSwitch);
-    digitalWrite(LED2, manualSwitch);
-    digitalWrite(LED3, manualSwitch);
-    digitalWrite(LED4, manualSwitch);
-  } else {
-    if (occupationDetected) {
-      digitalWrite(LED1, HIGH);
-      digitalWrite(LED2, HIGH);
-      if (teacherPresent) {
-        digitalWrite(LED3, HIGH);
-        digitalWrite(LED4, HIGH);
-      } else {
-        digitalWrite(LED3, LOW);
-        digitalWrite(LED4, LOW);
-      }
-    } else {
-      digitalWrite(LED1, LOW);
-      digitalWrite(LED2, LOW);
-      digitalWrite(LED3, LOW);
-      digitalWrite(LED4, LOW);
+void readRFID()
+{
+  if (!mfrc522.PICC_IsNewCardPresent())
+    return;
+
+  if (!mfrc522.PICC_ReadCardSerial())
+    return;
+
+  bool authorized = true;
+
+  for (byte i = 0; i < 4; i++)
+  {
+    if (mfrc522.uid.uidByte[i] != authorizedUID[i])
+    {
+      authorized = false;
+      break;
     }
   }
-}
 
-void handleSafety(bool smoke) {
-  if (smoke) {
+  if (authorized)
+  {
+    teacherPresent = !teacherPresent;
+
+    Serial.println("--------------------------------");
+    Serial.println("Authorized Card");
+
+    if (teacherPresent)
+      Serial.println("Teacher Entered");
+    else
+      Serial.println("Teacher Left");
+
     digitalWrite(BUZZER_PIN, HIGH);
-    windowServo.write(90);
-  } else {
+    delay(150);
     digitalWrite(BUZZER_PIN, LOW);
-    windowServo.write(0);
+
+    lastActivity = millis();
+  }
+  else
+  {
+    Serial.println("--------------------------------");
+    Serial.println("Unauthorized Card");
+
+    for (int i = 0; i < 3; i++)
+    {
+      digitalWrite(BUZZER_PIN, HIGH);
+      delay(100);
+      digitalWrite(BUZZER_PIN, LOW);
+      delay(100);
+    }
+  }
+
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
+}
+
+//==================================================
+// Ultrasonic Sensor
+//==================================================
+
+void readUltrasonic()
+{
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+
+  if (duration == 0)
+  {
+    occupationDetected = false;
+    return;
+  }
+
+  float distance = duration * 0.0343 / 2.0;
+
+  Serial.print("Distance : ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+  if (distance > 2 && distance < 150)
+  {
+    occupationDetected = true;
+    lastActivity = millis();
+  }
+  else
+  {
+    occupationDetected = false;
   }
 }
 
-void updateLCD(float t, float h, bool smoke) {
-  lcd.clear();
-  if (smoke) {
-    lcd.setCursor(0,0);
-    lcd.print("SMOKE DETECTED!");
-    lcd.setCursor(0,1);
-    lcd.print("EVACUATE NOW");
-  } else {
-    lcd.setCursor(0,0);
-    lcd.print("T:"); lcd.print(t); lcd.print("C ");
-    if (h > 70) lcd.print("Humid");
-    else lcd.print("Fav.");
+//==================================================
+// DHT11
+//==================================================
 
-    lcd.setCursor(0,1);
-    lcd.print("H:"); lcd.print(h); lcd.print("% ");
-    if (teacherPresent) lcd.print("Tchr IN");
-    else if (occupationDetected) lcd.print("Occupy");
+void readDHT()
+{
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+
+  if (isnan(t) || isnan(h))
+  {
+    Serial.println("DHT Read Failed");
+    return;
   }
+
+  temperature = t;
+  humidity = h;
 }
 
-void calculateEnergy() {
-  unsigned long currentTime = millis();
-  float durationHours = (currentTime - lastEnergyCalcTime) / 3600000.0;
+//==================================================
+// MQ135 Smoke Sensor
+//==================================================
 
-  int ledsOn = 0;
-  if (digitalRead(LED1)) ledsOn++;
-  if (digitalRead(LED2)) ledsOn++;
-  if (digitalRead(LED3)) ledsOn++;
-  if (digitalRead(LED4)) ledsOn++;
+void readSmoke()
+{
+  smokeLevel = analogRead(MQ135_PIN);
 
-  totalEnergyWh += (ledsOn * LED_POWER_WATTS * durationHours);
-  lastEnergyCalcTime = currentTime;
+  Serial.print("Smoke Level : ");
+  Serial.println(smokeLevel);
+
+  if (smokeLevel > 1500)
+    smokeDetected = true;
+  else
+    smokeDetected = false;
+}
+//==================================================
+// Control Lights
+//==================================================
+
+void controlLights()
+{
+    // Manual mode
+    if (manualMode)
+    {
+        bool sw = (digitalRead(SWITCH_PIN) == LOW);
+
+        digitalWrite(LED1, sw);
+        digitalWrite(LED2, sw);
+        digitalWrite(LED3, sw);
+        digitalWrite(LED4, sw);
+
+        return;
+    }
+
+    // Auto mode
+
+    if (!occupationDetected)
+    {
+        digitalWrite(LED1, LOW);
+        digitalWrite(LED2, LOW);
+        digitalWrite(LED3, LOW);
+        digitalWrite(LED4, LOW);
+        return;
+    }
+
+    // Occupation detected
+    digitalWrite(LED1, HIGH);
+    digitalWrite(LED2, HIGH);
+
+    if (teacherPresent)
+    {
+        digitalWrite(LED3, HIGH);
+        digitalWrite(LED4, HIGH);
+    }
+    else
+    {
+        digitalWrite(LED3, LOW);
+        digitalWrite(LED4, LOW);
+    }
 }
 
-void updateCloud(float t, float h, int sLevel) {
-  ThingSpeak.setField(1, t);
-  ThingSpeak.setField(2, h);
-  int occStatus = 0;
-  if (teacherPresent) occStatus = 2;
-  else if (occupationDetected) occStatus = 1;
-  ThingSpeak.setField(3, occStatus);
+//==================================================
+// Safety Control
+//==================================================
+
+void controlSafety()
+{
+    if(smokeDetected)
+    {
+        digitalWrite(BUZZER_PIN,HIGH);
+        windowServo.write(90);
+    }
+    else
+    {
+        digitalWrite(BUZZER_PIN,LOW);
+        windowServo.write(0);
+    }
+}
+
+//==================================================
+// LCD Update
+//==================================================
+
+void updateLCD()
+{
+    lcd.clear();
+
+    lcd.setCursor(0,0);
+    lcd.print("T:");
+    lcd.print(temperature,1);
+    lcd.print(" H:");
+    lcd.print(humidity,0);
+
+    lcd.setCursor(0,1);
+
+    if(smokeDetected)
+    {
+        lcd.print("SMOKE ALERT");
+    }
+    else if(teacherPresent)
+    {
+        lcd.print("Teacher Present");
+    }
+    else if(occupationDetected)
+    {
+        lcd.print("Occupied");
+    }
+    else
+    {
+        lcd.print("Room Empty");
+    }
+}
+
+//==================================================
+// Energy Calculation
+//==================================================
+
+void calculateEnergy()
+{
+    unsigned long current = millis();
+
+    float hours = (current - previousEnergy) / 3600000.0;
+
+    int ledCount = 0;
+
+    if(digitalRead(LED1)) ledCount++;
+    if(digitalRead(LED2)) ledCount++;
+    if(digitalRead(LED3)) ledCount++;
+    if(digitalRead(LED4)) ledCount++;
+
+    totalEnergyWh += ledCount * LED_POWER * hours;
+
+    previousEnergy = current;
+}
+
+//==================================================
+// Sleep Check
+//==================================================
+
+void sleepCheck()
+{
+    if(millis() - lastActivity < 900000)
+        return;
+
+    lcd.clear();
+
+    lcd.setCursor(0,0);
+    lcd.print("Sleep Mode");
+
+    lcd.setCursor(0,1);
+    lcd.print("Waiting...");
+
+    delay(1000);
+
+    Serial.println("Entering Light Sleep");
+
+    esp_light_sleep_start();
+
+    lastActivity = millis();
+}
+//==================================================
+// ThingSpeak Upload
+//==================================================
+
+void updateThingSpeak()
+{
+  ThingSpeak.setField(1, temperature);
+  ThingSpeak.setField(2, humidity);
+
+  int occupancy = 0;
+
+  if (teacherPresent)
+    occupancy = 2;
+  else if (occupationDetected)
+    occupancy = 1;
+
+  ThingSpeak.setField(3, occupancy);
   ThingSpeak.setField(4, smokeDetected ? 1 : 0);
-  ThingSpeak.setField(5, (mode == "auto" ? 0 : 1));
-  ThingSpeak.setField(6, digitalRead(LED1) ? 1 : 0);
-  ThingSpeak.setField(7, sLevel);
+  ThingSpeak.setField(5, manualMode ? 1 : 0);
+  ThingSpeak.setField(6, digitalRead(LED1));
+  ThingSpeak.setField(7, smokeLevel);
   ThingSpeak.setField(8, totalEnergyWh);
-  ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
-}
 
-void setupWebServer() {
-  server.on("/status", HTTP_GET, []() {
-    String json = "{";
-    json += "\"temp\":" + String(dht.readTemperature()) + ",";
-    json += "\"humidity\":" + String(dht.readHumidity()) + ",";
-    json += "\"motion\":" + String(occupationDetected ? "true" : "false") + ",";
-    json += "\"smoke\":" + String(smokeDetected ? "true" : "false") + ",";
-    json += "\"smokeLevel\":" + String(analogRead(MQ135_PIN)) + ",";
-    json += "\"mode\":\"" + mode + "\",";
-    json += "\"light\":\"" + String(digitalRead(LED1) ? "on" : "off") + "\",";
-    json += "\"teacher\":" + String(teacherPresent ? "true" : "false") + ",";
-    json += "\"energy\":" + String(totalEnergyWh);
-    json += "}";
-    server.send(200, "application/json", json);
-  });
-  server.begin();
-}
+  int status = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
 
-void connectWiFi() {
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  if (status == 200)
+  {
+    Serial.println("ThingSpeak Updated Successfully");
+  }
+  else
+  {
+    Serial.print("ThingSpeak Error : ");
+    Serial.println(status);
   }
 }
 
-void goToSleep() {
-  lcd.clear();
-  lcd.print("Sleep Mode...");
-  delay(1000);
-  esp_light_sleep_start();
-  lastActivityTime = millis();
+//==================================================
+// Web Server
+//==================================================
+
+void setupWebServer()
+{
+
+  server.on("/", HTTP_GET, []()
+  {
+    server.send(200, "text/plain", "SmartVolt Campus Server Running");
+  });
+
+  server.on("/status", HTTP_GET, []()
+  {
+
+    String json = "{";
+
+    json += "\"temperature\":";
+    json += String(temperature,1);
+
+    json += ",\"humidity\":";
+    json += String(humidity,1);
+
+    json += ",\"teacher\":";
+    json += teacherPresent ? "true" : "false";
+
+    json += ",\"occupied\":";
+    json += occupationDetected ? "true" : "false";
+
+    json += ",\"smoke\":";
+    json += smokeDetected ? "true" : "false";
+
+    json += ",\"smokeLevel\":";
+    json += String(smokeLevel);
+
+    json += ",\"manualMode\":";
+    json += manualMode ? "true" : "false";
+
+    json += ",\"led1\":";
+    json += digitalRead(LED1);
+
+    json += ",\"led2\":";
+    json += digitalRead(LED2);
+
+    json += ",\"led3\":";
+    json += digitalRead(LED3);
+
+    json += ",\"led4\":";
+    json += digitalRead(LED4);
+
+    json += ",\"energy\":";
+    json += String(totalEnergyWh,3);
+
+    json += "}";
+
+    server.send(200, "application/json", json);
+
+  });
+
+  server.begin();
+
+  Serial.println("Web Server Started");
 }
+
+//==================================================
+// End of SmartVolt Campus
+//==================================================
