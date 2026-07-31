@@ -258,9 +258,7 @@ class DashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<ControlProvider>(context);
-    final auth = Provider.of<AuthProvider>(context);
     final data = provider.data;
-    final isTeacher = auth.role == UserRole.teacher;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -307,55 +305,6 @@ class DashboardScreen extends StatelessWidget {
           ),
 
           const SizedBox(height: 30),
-
-          // Mode Selection Card
-          Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const Text(
-                    'CLASSROOM CONTROL',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                  ),
-                  const Divider(),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Mode:', style: TextStyle(fontSize: 16)),
-                      ActionChip(
-                        label: Text(
-                          data.mode.toUpperCase(),
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        backgroundColor: data.mode == 'auto' ? Colors.green : Colors.orange,
-                        onPressed: isTeacher ? () => provider.toggleMode() : null,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  if (!isTeacher)
-                    const Text(
-                      'View-only mode enabled for your account.',
-                      style: TextStyle(color: Colors.red, fontSize: 12),
-                    ),
-                  Text(
-                    data.mode == 'auto'
-                        ? 'System is making automatic decisions.'
-                        : 'Manual Control is active.',
-                    style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // Manual Controls
-          _buildManualControls(provider, data, isTeacher),
         ],
       ),
     );
@@ -365,7 +314,7 @@ class DashboardScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: connected ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+        color: connected ? Colors.green.withValues(alpha: 0.1) : Colors.red.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -384,23 +333,6 @@ class DashboardScreen extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildManualControls(ControlProvider provider, dynamic data, bool isTeacher) {
-    final bool isManual = data.mode == 'manual';
-    // Only teachers can actually interact if it's manual
-    final bool canInteract = isTeacher && isManual;
-
-    return Column(
-      children: [
-        _ControlRow(
-          label: 'Light',
-          isOn: data.lightState,
-          isEnabled: canInteract,
-          onToggle: (val) => provider.controlDevice('light', val),
-        ),
-      ],
     );
   }
 }
@@ -441,53 +373,3 @@ class _SensorCard extends StatelessWidget {
   }
 }
 
-class _ControlRow extends StatelessWidget {
-  final String label;
-  final bool isOn;
-  final bool isEnabled;
-  final Function(bool) onToggle;
-
-  const _ControlRow({
-    required this.label,
-    required this.isOn,
-    required this.isEnabled,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: isEnabled ? null : Colors.grey[200],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.lightbulb,
-                  color: isEnabled ? (isOn ? Colors.yellow[800] : Colors.grey) : Colors.grey[400],
-                ),
-                const SizedBox(width: 15),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: isEnabled ? Colors.black : Colors.grey[500],
-                  ),
-                ),
-              ],
-            ),
-            Switch(
-              value: isOn,
-              onChanged: isEnabled ? onToggle : null,
-              activeThumbColor: Colors.blue,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
